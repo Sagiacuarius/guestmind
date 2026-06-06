@@ -1,0 +1,158 @@
+{
+  "name": "wf-check-in-detected",
+  "nodes": [
+    {
+      "id": "webhook-receive",
+      "name": "Recibir check-in",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "check-in-detected",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "respond-200",
+      "name": "Responder 200 OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [800, 0],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"status\": \"processing\"}"
+      }
+    },
+    {
+      "id": "get-guest",
+      "name": "Obtener huésped",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [200, 0],
+      "parameters": {
+        "operation": "get",
+        "table": "guests",
+        "filters": {
+          "conditions": [
+            {
+              "fieldName": "id",
+              "condition": "equal",
+              "fieldValue": "={{ $json.guest_id }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "get-memory-pack",
+      "name": "Obtener Memory Pack",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [200, 100],
+      "parameters": {
+        "operation": "get",
+        "table": "memory_packs",
+        "filters": {
+          "conditions": [
+            {
+              "fieldName": "property_id",
+              "condition": "equal",
+              "fieldValue": "={{ $json.property_id }}"
+            },
+            {
+              "fieldName": "segment",
+              "condition": "equal",
+              "fieldValue": "={{ $json.travel_reason }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "enrich-profile",
+      "name": "Enriquecer perfil",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 0],
+      "parameters": {
+        "jsCode": "// Merge guest data + stay data + memory pack into enriched profile\nconst guest = $input.all()[0].json;\nconst memoryPack = $input.all()[1]?.json || {};\nconst stayWebhook = $('Recibir check-in').item.json;\n\nconst enrichedProfile = {\n  guest_name: guest.name,\n  language: guest.language || 'es',\n  country: guest.country,\n  email: guest.email,\n  current_stay: {\n    check_in_date: stayWebhook.check_in_date,\n    room_number: stayWebhook.room_number,\n    group_composition: stayWebhook.group_composition,\n    travel_reason: stayWebhook.travel_reason\n  },\n  segment: memoryPack.segment || 'leisure',\n  baseline_recommendations: memoryPack.baseline_recommendations || {}\n};\n\nreturn enrichedProfile;"
+      }
+    },
+    {
+      "id": "update-stay",
+      "name": "Guardar perfil enriquecido",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [600, 0],
+      "parameters": {
+        "operation": "update",
+        "table": "stays",
+        "updateKey": "id",
+        "filters": {
+          "conditions": [
+            {
+              "fieldName": "enriched_profile",
+              "condition": "equal",
+              "fieldValue": "={{ JSON.stringify($json) }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "generate-email",
+      "name": "Generar email (LLM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [600, 100],
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{ $env.OPENROUTER_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Recibir check-in": {
+      "main": [
+        [{ "node": "Obtener huésped", "type": "main", "index": 0 }],
+        [{ "node": "Obtener Memory Pack", "type": "main", "index": 0 }]
+      ]
+    },
+    "Obtener huésped": {
+      "main": [[{ "node": "Enriquecer perfil", "type": "main", "index": 0 }]]
+    },
+    "Obtener Memory Pack": {
+      "main": [[{ "node": "Enriquecer perfil", "type": "main", "index": 1 }]]
+    },
+    "Enriquecer perfil": {
+      "main": [
+        [{ "node": "Guardar perfil enriquecido", "type": "main", "index": 0 }],
+        [{ "node": "Generar email (LLM)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generar email (LLM)": {
+      "main": [[{ "node": "Responder 200 OK", "type": "main", "index": 0 }]]
+    },
+    "Guardar perfil enriquecido": {
+      "main": [[{ "node": "Responder 200 OK", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}
