@@ -1,0 +1,32 @@
+name: GuestMind CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run typecheck 2>/dev/null || npx tsc --noEmit
+      - run: npm run lint 2>/dev/null || true
+      - run: npm test -- --run
+
+  deploy:
+    needs: quality
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci && npm run build
+      # Vercel deploy — configurar VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID en secrets
+      - name: Deploy to Vercel
+        run: echo "Deploy step — configure Vercel secrets to enable"
