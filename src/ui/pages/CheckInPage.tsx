@@ -1,29 +1,42 @@
 import { useState } from 'react'
 import { GuestLookup } from '../components/GuestLookup'
 import { CheckInForm } from '../components/CheckInForm'
-import { createGuest } from '../../data/guests'
+import { createGuest, markLeadCheckedIn } from '../../data/guests'
 import { createStay } from '../../data/stays'
 import { CURRENT_PROPERTY_ID } from '../../config/constants'
-import type { Guest } from '../../domain/guest'
+import type { LookupResult } from '../../domain/guest'
 import type { CheckInFormData } from '../../domain/check-in'
 
 export function CheckInPage() {
-  const [foundGuest, setFoundGuest] = useState<Guest | null>(null)
+  const [lookupResult, setLookupResult] = useState<LookupResult | null>(null)
   const [submitted, setSubmitted] = useState(false)
 
-  const handleGuestFound = (guest: Guest | null) => {
-    setFoundGuest(guest)
+  const handleGuestFound = (result: LookupResult) => {
+    setLookupResult(result)
   }
 
   const handleSubmit = async (data: CheckInFormData) => {
     try {
       let guestId: string
 
-      if (foundGuest) {
+      if (lookupResult?.type === 'guest') {
         // Huésped recurrente: usar su ID existente
-        guestId = foundGuest.id
+        guestId = lookupResult.guest.id
+      } else if (lookupResult?.type === 'lead') {
+        // Lead que se aloja por primera vez: crear guest y marcar lead como checked_in
+        const guest = await createGuest({
+          propertyId: CURRENT_PROPERTY_ID,
+          email: data.email,
+          name: data.name,
+          country: data.country,
+          language: data.language || 'es',
+          phone: data.phone,
+          whatsappConsent: data.whatsappConsent || false,
+        })
+        guestId = guest.id
+        await markLeadCheckedIn(lookupResult.lead.id)
       } else {
-        // Huésped nuevo: crear en Supabase
+        // Huésped completamente nuevo
         const guest = await createGuest({
           propertyId: CURRENT_PROPERTY_ID,
           email: data.email,
@@ -54,7 +67,7 @@ export function CheckInPage() {
 
   const handleNewCheckIn = () => {
     setSubmitted(false)
-    setFoundGuest(null)
+    setLookupResult(null)
   }
 
   if (submitted) {
@@ -67,15 +80,23 @@ export function CheckInPage() {
     )
   }
 
-  const initialData = foundGuest
-    ? {
-        name: foundGuest.name,
-        email: foundGuest.email,
-        country: foundGuest.country,
-        language: foundGuest.language,
-        phone: foundGuest.phone,
-      }
-    : undefined
+  let initialData: Partial<CheckInFormData> | undefined
+
+  if (lookupResult?.type === 'guest') {
+    initialData = {
+      name: lookupResult.guest.name,
+      email: lookupResult.guest.email,
+      country: lookupResult.guest.country,
+      language: lookupResult.guest.language,
+      phone: lookupResult.guest.phone,
+    }
+  } else if (lookupResult?.type === 'lead') {
+    initialData = {
+      name: lookupResult.lead.name,
+      email: lookupResult.lead.email,
+      phone: lookupResult.lead.phone,
+    }
+  }
 
   return (
     <div>

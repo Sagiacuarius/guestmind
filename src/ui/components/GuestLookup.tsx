@@ -1,17 +1,16 @@
 import { useState } from 'react'
-import { lookupGuestByEmail } from '../../data/guests'
+import { lookupByEmail } from '../../data/guests'
 import { CURRENT_PROPERTY_ID } from '../../config/constants'
-import type { Guest } from '../../domain/guest'
+import type { LookupResult } from '../../domain/guest'
 
 interface Props {
-  onGuestFound: (guest: Guest | null) => void
+  onGuestFound: (result: LookupResult) => void
 }
 
 export function GuestLookup({ onGuestFound }: Props) {
   const [email, setEmail] = useState('')
   const [searching, setSearching] = useState(false)
-  const [result, setResult] = useState<'found' | 'new' | null>(null)
-  const [guest, setGuest] = useState<Guest | null>(null)
+  const [result, setResult] = useState<LookupResult | null>(null)
 
   const handleSearch = async () => {
     if (!email.trim()) return
@@ -19,16 +18,9 @@ export function GuestLookup({ onGuestFound }: Props) {
     setResult(null)
 
     try {
-      const found = await lookupGuestByEmail(email.trim(), CURRENT_PROPERTY_ID)
-      if (found) {
-        setGuest(found)
-        setResult('found')
-        onGuestFound(found)
-      } else {
-        setGuest(null)
-        setResult('new')
-        onGuestFound(null)
-      }
+      const found = await lookupByEmail(email.trim(), CURRENT_PROPERTY_ID)
+      setResult(found)
+      onGuestFound(found)
     } catch (err) {
       console.error('Lookup failed:', err)
     } finally {
@@ -55,13 +47,19 @@ export function GuestLookup({ onGuestFound }: Props) {
         </div>
       </label>
 
-      {result === 'found' && guest && (
+      {result?.type === 'guest' && (
         <div className="lookup-result found">
-          ✓ {guest.name} — {guest.country || 'País no especificado'} · {guest.language.toUpperCase()}
+          ✓ {result.guest.name} — {result.guest.country || 'País no especificado'} · {result.guest.language.toUpperCase()} · Ya alojado
         </div>
       )}
 
-      {result === 'new' && (
+      {result?.type === 'lead' && (
+        <div className="lookup-result lead">
+          📋 {result.lead.name} — Ya nos contactó · Completá los datos para el check-in
+        </div>
+      )}
+
+      {result?.type === 'new' && (
         <div className="lookup-result new">
           ✦ Huésped nuevo — completá el formulario para crear su perfil
         </div>

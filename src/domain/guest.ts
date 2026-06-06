@@ -1,5 +1,4 @@
 // Domain types for GuestMind — pure TypeScript, no framework dependencies
-// These types represent the core business entities
 
 export interface Guest {
   id: string
@@ -11,6 +10,16 @@ export interface Guest {
   language: 'es' | 'en' | 'pt'
   phone?: string
   whatsappConsent: boolean
+  createdAt: string
+}
+
+export interface Lead {
+  id: string
+  propertyId: string
+  name: string
+  email: string
+  phone?: string
+  checkedIn: boolean
   createdAt: string
 }
 
@@ -40,3 +49,8 @@ export interface Preference {
 export interface GuestWithPreferences extends Guest {
   preferences?: Preference
 }
+
+export type LookupResult =
+  | { type: 'guest'; guest: Guest }
+  | { type: 'lead'; lead: Lead }
+  | { type: 'new' }
