@@ -19,7 +19,7 @@
       "name": "Responder 200 OK",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [800, 0],
+      "position": [1000, 0],
       "parameters": {
         "respondWith": "json",
         "responseBody": "{\"status\": \"processing\"}"
@@ -46,11 +46,21 @@
       }
     },
     {
+      "id": "derive-segment",
+      "name": "Derivar segmento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 100],
+      "parameters": {
+        "jsCode": "// Deriva el segmento del huésped combinando group_composition + travel_reason\n// Reglas (en orden de prioridad):\n//   1. group_composition === 'family'  → family  (trumps travel_reason)\n//   2. travel_reason === 'business'    → business\n//   3. travel_reason === 'honeymoon'   → honeymoon\n//   4. travel_reason === 'adventure'   → adventure\n//   5. cualquier otra combinación       → none (sin memory pack, perfil genérico)\n\nconst groupComposition = ($json.group_composition || '').trim().toLowerCase();\nconst travelReason = ($json.travel_reason || '').trim().toLowerCase();\n\nlet segment = 'none';\n\nif (groupComposition === 'family') {\n  segment = 'family';\n} else if (travelReason === 'business') {\n  segment = 'business';\n} else if (travelReason === 'honeymoon') {\n  segment = 'honeymoon';\n} else if (travelReason === 'adventure') {\n  segment = 'adventure';\n}\n\nreturn {\n  segment,\n  group_composition: groupComposition,\n  travel_reason: travelReason,\n  matched: segment !== 'none'\n};"
+      }
+    },
+    {
       "id": "get-memory-pack",
       "name": "Obtener Memory Pack",
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
-      "position": [200, 100],
+      "position": [400, 100],
       "parameters": {
         "operation": "get",
         "table": "memory_packs",
@@ -59,12 +69,12 @@
             {
               "fieldName": "property_id",
               "condition": "equal",
-              "fieldValue": "={{ $json.property_id }}"
+              "fieldValue": "={{ $('Recibir check-in').item.json.property_id }}"
             },
             {
               "fieldName": "segment",
               "condition": "equal",
-              "fieldValue": "={{ $json.travel_reason }}"
+              "fieldValue": "={{ $json.segment }}"
             }
           ]
         }
@@ -75,9 +85,9 @@
       "name": "Enriquecer perfil",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [400, 0],
+      "position": [600, 0],
       "parameters": {
-        "jsCode": "// Merge guest data + stay data + memory pack into enriched profile\nconst guest = $input.all()[0].json;\nconst memoryPack = $input.all()[1]?.json || {};\nconst stayWebhook = $('Recibir check-in').item.json;\n\nconst enrichedProfile = {\n  guest_name: guest.name,\n  language: guest.language || 'es',\n  country: guest.country,\n  email: guest.email,\n  current_stay: {\n    check_in_date: stayWebhook.check_in_date,\n    room_number: stayWebhook.room_number,\n    group_composition: stayWebhook.group_composition,\n    travel_reason: stayWebhook.travel_reason\n  },\n  segment: memoryPack.segment || 'leisure',\n  baseline_recommendations: memoryPack.baseline_recommendations || {}\n};\n\nreturn enrichedProfile;"
+        "jsCode": "// Merge: datos del huésped (input 0) + memory pack (input 1, opcional) + webhook\nconst guest = $input.all()[0].json;\nconst memoryPackRow = $input.all()[1]?.json;\nconst hasMemoryPack = memoryPackRow && memoryPackRow.segment && memoryPackRow.segment !== 'none';\nconst stayWebhook = $('Recibir check-in').item.json;\n\nconst enrichedProfile = {\n  guest_name: guest.name,\n  language: guest.language || 'es',\n  country: guest.country,\n  email: guest.email,\n  current_stay: {\n    check_in_date: stayWebhook.check_in_date,\n    room_number: stayWebhook.room_number,\n    group_composition: stayWebhook.group_composition,\n    travel_reason: stayWebhook.travel_reason\n  },\n  segment: hasMemoryPack ? memoryPackRow.segment : 'generic',\n  baseline_recommendations: hasMemoryPack ? (memoryPackRow.baseline_recommendations || {}) : {},\n  prompt_additions: hasMemoryPack ? (memoryPackRow.prompt_additions || '') : '',\n  personalization_level: hasMemoryPack ? 'segment_baseline' : 'generic_only'\n};\n\nreturn enrichedProfile;"
       }
     },
     {
@@ -85,7 +95,7 @@
       "name": "Guardar perfil enriquecido",
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
-      "position": [600, 0],
+      "position": [800, 0],
       "parameters": {
         "operation": "update",
         "table": "stays",
@@ -106,7 +116,7 @@
       "name": "Generar email (LLM)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [600, 100],
+      "position": [800, 100],
       "parameters": {
         "method": "POST",
         "url": "https://openrouter.ai/api/v1/chat/completions",
@@ -130,11 +140,14 @@
     "Recibir check-in": {
       "main": [
         [{ "node": "Obtener huésped", "type": "main", "index": 0 }],
-        [{ "node": "Obtener Memory Pack", "type": "main", "index": 0 }]
+        [{ "node": "Derivar segmento", "type": "main", "index": 0 }]
       ]
     },
     "Obtener huésped": {
       "main": [[{ "node": "Enriquecer perfil", "type": "main", "index": 0 }]]
+    },
+    "Derivar segmento": {
+      "main": [[{ "node": "Obtener Memory Pack", "type": "main", "index": 0 }]]
     },
     "Obtener Memory Pack": {
       "main": [[{ "node": "Enriquecer perfil", "type": "main", "index": 1 }]]
