@@ -6,7 +6,10 @@
       "name": "Recibir check-in",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "httpMethod": "POST",
         "path": "check-in-detected",
@@ -19,7 +22,10 @@
       "name": "Responder 200 OK",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1000, 0],
+      "position": [
+        1000,
+        0
+      ],
       "parameters": {
         "respondWith": "json",
         "responseBody": "{\"status\": \"processing\"}"
@@ -30,7 +36,10 @@
       "name": "Obtener huésped",
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
-      "position": [200, 0],
+      "position": [
+        200,
+        0
+      ],
       "parameters": {
         "operation": "get",
         "table": "guests",
@@ -50,7 +59,10 @@
       "name": "Derivar segmento",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [200, 100],
+      "position": [
+        200,
+        100
+      ],
       "parameters": {
         "jsCode": "// Deriva el segmento del huésped combinando group_composition + travel_reason\n// Reglas (en orden de prioridad):\n//   1. group_composition === 'family'  → family  (trumps travel_reason)\n//   2. travel_reason === 'business'    → business\n//   3. travel_reason === 'honeymoon'   → honeymoon\n//   4. travel_reason === 'adventure'   → adventure\n//   5. cualquier otra combinación       → none (sin memory pack, perfil genérico)\n\nconst groupComposition = ($json.group_composition || '').trim().toLowerCase();\nconst travelReason = ($json.travel_reason || '').trim().toLowerCase();\n\nlet segment = 'none';\n\nif (groupComposition === 'family') {\n  segment = 'family';\n} else if (travelReason === 'business') {\n  segment = 'business';\n} else if (travelReason === 'honeymoon') {\n  segment = 'honeymoon';\n} else if (travelReason === 'adventure') {\n  segment = 'adventure';\n}\n\nreturn {\n  segment,\n  group_composition: groupComposition,\n  travel_reason: travelReason,\n  matched: segment !== 'none'\n};"
       }
@@ -60,7 +72,10 @@
       "name": "Obtener Memory Pack",
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
-      "position": [400, 100],
+      "position": [
+        400,
+        100
+      ],
       "parameters": {
         "operation": "get",
         "table": "memory_packs",
@@ -85,7 +100,10 @@
       "name": "Enriquecer perfil",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [600, 0],
+      "position": [
+        600,
+        0
+      ],
       "parameters": {
         "jsCode": "// Merge: datos del huésped (input 0) + memory pack (input 1, opcional) + webhook\nconst guest = $input.all()[0].json;\nconst memoryPackRow = $input.all()[1]?.json;\nconst hasMemoryPack = memoryPackRow && memoryPackRow.segment && memoryPackRow.segment !== 'none';\nconst stayWebhook = $('Recibir check-in').item.json;\n\nconst enrichedProfile = {\n  guest_name: guest.name,\n  language: guest.language || 'es',\n  country: guest.country,\n  email: guest.email,\n  current_stay: {\n    check_in_date: stayWebhook.check_in_date,\n    room_number: stayWebhook.room_number,\n    group_composition: stayWebhook.group_composition,\n    travel_reason: stayWebhook.travel_reason\n  },\n  segment: hasMemoryPack ? memoryPackRow.segment : 'generic',\n  baseline_recommendations: hasMemoryPack ? (memoryPackRow.baseline_recommendations || {}) : {},\n  prompt_additions: hasMemoryPack ? (memoryPackRow.prompt_additions || '') : '',\n  personalization_level: hasMemoryPack ? 'segment_baseline' : 'generic_only'\n};\n\nreturn enrichedProfile;"
       }
@@ -95,7 +113,10 @@
       "name": "Guardar perfil enriquecido",
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
-      "position": [800, 0],
+      "position": [
+        800,
+        0
+      ],
       "parameters": {
         "operation": "update",
         "table": "stays",
@@ -116,7 +137,10 @@
       "name": "Generar email (LLM)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [800, 100],
+      "position": [
+        800,
+        100
+      ],
       "parameters": {
         "method": "POST",
         "url": "https://openrouter.ai/api/v1/chat/completions",
@@ -124,45 +148,114 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "Bearer {{ $env.OPENROUTER_API_KEY }}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.OPENROUTER_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
-        "bodyParameters": {
-          "parameters": []
-        },
-        "options": {}
+        "options": {},
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"openai/gpt-4.1-mini\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are the GuestMind hospitality concierge for a premium resort in Latin America.\\nYour task is to write a pre-arrival welcome email for a guest.\\n\\nDESIGN SYSTEM (HTML email):\\n- Max width: 600px, centered\\n- Background: #f8f6f2 (warm cream)\\n- Card: #ffffff with 8px border-radius, 1px solid #e0e0e0\\n- Primary color: #1e3a5f (navy blue — use for header, name, buttons)\\n- Accent color: #c9a96e (warm gold — use for highlights, borders, badge)\\n- Text: #1a1a1a\\n- Font stack: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif\\n- Clean, minimal, elegant — premium hotel letterhead style\\n- No images, no external assets — pure HTML/CSS inline styles\\n- Responsive, works on mobile (min 44px touch targets)\\n- Use the accent color (#c9a96e) for a thin top border on the card (4px)\\n- Header: guest name in primary color, 24px, 600 weight\\n- Body text: 16px, line-height 1.6\\n- Recommendations as a clean bullet list with accent-color left border\\n- Footer: subtle, 13px, #999\\n\\nTONE RULES (critical):\\n{{ $('Enriquecer perfil').item.json.prompt_additions }}\\n\\nCONTENT STRUCTURE:\\n1. Subject line (in guest language) — warm, personalized\\n2. Greeting: \\\"Hola [Name]\\\" / \\\"Hello [Name]\\\" / \\\"Olá [Name]\\\"\\n3. Opening: 1 sentence acknowledging their upcoming stay\\n4. Stay details: check-in date, subtly mentioned\\n5. Recommendations: 2-3 personalized suggestions in a clean list\\n6. Closing: 1 warm sentence inviting questions\\n7. Signature: \\\"Equipo GuestMind\\\"\\n\\nOUTPUT: Return ONLY the complete HTML email as a <!DOCTYPE html> document.\\nNo explanations, no markdown wrappers, no ```html blocks. Just the HTML.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Generate a pre-arrival welcome email for this guest:\\n\\nName: {{ $('Enriquecer perfil').item.json.guest_name }}\\nLanguage: {{ $('Enriquecer perfil').item.json.language }}\\nCountry: {{ $('Enriquecer perfil').item.json.country }}\\nEmail: {{ $('Enriquecer perfil').item.json.email }}\\nCheck-in date: {{ $('Enriquecer perfil').item.json.current_stay.check_in_date }}\\nRoom: {{ $('Enriquecer perfil').item.json.current_stay.room_number }}\\nGroup: {{ $('Enriquecer perfil').item.json.current_stay.group_composition }}\\nReason: {{ $('Enriquecer perfil').item.json.current_stay.travel_reason }}\\nSegment: {{ $('Enriquecer perfil').item.json.segment }}\\nPersonalization: {{ $('Enriquecer perfil').item.json.personalization_level }}\\n\\nBaseline recommendations (JSON): {{ JSON.stringify($('Enriquecer perfil').item.json.baseline_recommendations) }}\\n\\nIMPORTANT: Write the ENTIRE email in {{ $('Enriquecer perfil').item.json.language === 'pt' ? 'Portuguese (Brazilian)' : $('Enriquecer perfil').item.json.language === 'en' ? 'English' : 'Spanish (Latin American)' }}.\\nUse the guest's name naturally. Match the tone to their segment.\"\n    }\n  ],\n  \"temperature\": 0.7,\n  \"max_tokens\": 2000\n}"
       }
     }
   ],
   "connections": {
     "Recibir check-in": {
       "main": [
-        [{ "node": "Obtener huésped", "type": "main", "index": 0 }],
-        [{ "node": "Derivar segmento", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Obtener huésped",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Derivar segmento",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Obtener huésped": {
-      "main": [[{ "node": "Enriquecer perfil", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Enriquecer perfil",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Derivar segmento": {
-      "main": [[{ "node": "Obtener Memory Pack", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Obtener Memory Pack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Obtener Memory Pack": {
-      "main": [[{ "node": "Enriquecer perfil", "type": "main", "index": 1 }]]
+      "main": [
+        [
+          {
+            "node": "Enriquecer perfil",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
     },
     "Enriquecer perfil": {
       "main": [
-        [{ "node": "Guardar perfil enriquecido", "type": "main", "index": 0 }],
-        [{ "node": "Generar email (LLM)", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Guardar perfil enriquecido",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Generar email (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Generar email (LLM)": {
-      "main": [[{ "node": "Responder 200 OK", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Responder 200 OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Guardar perfil enriquecido": {
-      "main": [[{ "node": "Responder 200 OK", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Responder 200 OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
